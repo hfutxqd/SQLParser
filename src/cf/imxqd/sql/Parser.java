@@ -5,7 +5,7 @@ import java.util.Stack;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import cf.imxqd.sql.Table.Row;
+
 
 public class Parser {
 	ArrayList<String> selectList = null;
@@ -62,6 +62,30 @@ public class Parser {
 		}
 	}
 	
+	String replaceOp(String where, Pattern pattern, Matcher matcher)
+	{
+		//这里把多个字符的运算符转为单字符的，方便运算
+		pattern = Pattern.compile("not",Pattern.CASE_INSENSITIVE);
+		matcher = pattern.matcher(where);
+		where = matcher.replaceAll("^");
+		pattern = Pattern.compile("and",Pattern.CASE_INSENSITIVE);
+		matcher = pattern.matcher(where);
+		where = matcher.replaceAll("&");
+		pattern = Pattern.compile("or",Pattern.CASE_INSENSITIVE);
+		matcher = pattern.matcher(where);
+		where = matcher.replaceAll("|");
+		pattern = Pattern.compile(">=",Pattern.CASE_INSENSITIVE);
+		matcher = pattern.matcher(where);
+		where = matcher.replaceAll("}");
+		pattern = Pattern.compile("<=",Pattern.CASE_INSENSITIVE);
+		matcher = pattern.matcher(where);
+		where = matcher.replaceAll("{");
+		pattern = Pattern.compile("<>",Pattern.CASE_INSENSITIVE);
+		matcher = pattern.matcher(where);
+		where = matcher.replaceAll("!");
+		return where;
+	}
+	
 	private void ParserWhere() {
 		Pattern pattern = Pattern.compile("where *\\(.*\\)",Pattern.CASE_INSENSITIVE);
 		Matcher matcher = pattern.matcher(SQL);
@@ -72,26 +96,7 @@ public class Parser {
 			matcher = pattern.matcher(where);
 			where = matcher.replaceAll("");
 			where = where.replace(" ", "");
-			//这里把多个字符的运算符转为单字符的，方便运算
-			pattern = Pattern.compile("not",Pattern.CASE_INSENSITIVE);
-			matcher = pattern.matcher(where);
-			where = matcher.replaceAll("^");
-			pattern = Pattern.compile("and",Pattern.CASE_INSENSITIVE);
-			matcher = pattern.matcher(where);
-			where = matcher.replaceAll("&");
-			pattern = Pattern.compile("or",Pattern.CASE_INSENSITIVE);
-			matcher = pattern.matcher(where);
-			where = matcher.replaceAll("|");
-			pattern = Pattern.compile(">=",Pattern.CASE_INSENSITIVE);
-			matcher = pattern.matcher(where);
-			where = matcher.replaceAll("}");
-			pattern = Pattern.compile("<=",Pattern.CASE_INSENSITIVE);
-			matcher = pattern.matcher(where);
-			where = matcher.replaceAll("{");
-			pattern = Pattern.compile("<>",Pattern.CASE_INSENSITIVE);
-			matcher = pattern.matcher(where);
-			where = matcher.replaceAll("!");
-			whereCase = where;
+			whereCase = replaceOp(where, pattern, matcher);
 		}catch(Exception e)
 		{
 			whereCase = "T";
@@ -129,6 +134,37 @@ public class Parser {
 		System.out.println();
 	}
 	
+	void printResult()
+	{
+		Table tab = (Table)database.get(table);
+		ArrayList<String> tabFields = tab.getFields();
+		if(tabFields.containsAll(selectList))
+		{
+			ArrayList<Row> rows =  tab.getRows();//获取所有记录
+			printTitle(tab);
+			for(Row row:rows)//遍历记录
+			{
+				if(computeWhereCase(row))
+				{
+					for(String str:selectList)
+					{
+						System.out.print(row.get(str)+"\t");
+					}
+					if(selectList.size() == 0)
+					{
+						for(String str:tab.fields)
+						{
+							System.out.print(row.get(str)+"\t");
+						}
+					}
+					System.out.println();
+				}
+			}
+		}else{
+			System.out.println("some fields not exist.");
+		}
+	}
+	
 	void screen()
 	{
 		Table tab = (Table)database.get(table);
@@ -136,32 +172,7 @@ public class Parser {
 		{
 			System.out.println("Table:"+ table + " not exist.");
 		}else{
-			ArrayList<String> tabFields = tab.getFields();
-			if(tabFields.containsAll(selectList))
-			{
-				ArrayList<Row> rows =  tab.getRows();//获取所有记录
-				printTitle(tab);
-				for(Row row:rows)//遍历记录
-				{
-					if(computeWhereCase(row))
-					{
-						for(String str:selectList)
-						{
-							System.out.print(row.get(str)+"\t");
-						}
-						if(selectList.size() == 0)
-						{
-							for(String str:tab.fields)
-							{
-								System.out.print(row.get(str)+"\t");
-							}
-						}
-						System.out.println();
-					}
-				}
-			}else{
-				System.out.println("some fields not exist.");
-			}
+			printResult();
 		}
 	}
 	
@@ -213,69 +224,71 @@ public class Parser {
 		return b;
 	}
 	
-	private void operatorOperation() {
-		
+	private int operatorCompute(int i,char[] where) {
+		char c = where[i];
+//		System.out.println("The current char is "+c);
+		if(c == 'T' || c == 'F')//非操作符，逻辑符号入栈
+		{
+			values.push(c);
+//			System.out.println("push to value: "+ c);
+		}else{
+			if(operator.size() == 0)//若栈里没有操作符，则操作符入栈
+			{
+				operator.push(c);
+//				System.out.println("push to operator: "+ c);
+			}else{
+				char stack = operator.peek();
+				if(stack == '(' && c == ')')
+				{
+					operator.pop();
+//					System.out.println("pop from operator: "+ stack);
+					return i;
+				}
+				if(comparePriority(stack, c))//栈顶操作符优先级大于当前操作符
+				{
+					operator.pop();
+//					System.out.println("pop from values: "+ stack);
+					if(stack == '^')
+					{
+						char v = values.pop();
+//						System.out.println("pop from operator: "+ v);
+						v = (v == 'T'?'F':'T');
+						values.push(v);
+						i--;
+//						System.out.println("push to values: "+ v);
+					}else{
+						char a = values.pop();
+//						System.out.println("pop from values: "+ a);
+						char b = values.pop();
+//						System.out.println("pop from values: "+ b);
+						char v = computeLogic(a,b,stack);
+//						System.out.println("push to values: "+ v);
+						values.push(v);
+						i--;
+					}
+				}else{
+					operator.push(c);
+//					System.out.println("push to operator: "+ c);
+				}
+			}
+		}
+		return i;
 	}
-	
+	Stack<Character> operator = new Stack<>();
+	Stack<Character> values = new Stack<>();
 	private boolean TFComputer(String wheretmp) {
-		Stack<Character> operator = new Stack<>();
-		Stack<Character> values = new Stack<>();
+		operator.clear();
+		values.clear();
 		char[] where = wheretmp.toCharArray();
 		for(int i = 0; i < where.length; i++)
 		{
-			char c = where[i];
-//			System.out.println("The current char is "+c);
-			if(c == 'T' || c == 'F')//非操作符，逻辑符号入栈
-			{
-				values.push(c);
-//				System.out.println("push to value: "+ c);
-			}else{
-				if(operator.size() == 0)//若栈里没有操作符，则操作符入栈
-				{
-					operator.push(c);
-//					System.out.println("push to operator: "+ c);
-				}else{
-					char stack = operator.peek();
-					if(stack == '(' && c == ')')
-					{
-						operator.pop();
-//						System.out.println("pop from operator: "+ stack);
-						continue;
-					}
-					if(comparePriority(stack, c))//栈顶操作符优先级大于当前操作符
-					{
-						operator.pop();
-//						System.out.println("pop from values: "+ stack);
-						if(stack == '^')
-						{
-							char v = values.pop();
-//							System.out.println("pop from operator: "+ v);
-							v = (v == 'T'?'F':'T');
-							values.push(v);
-							i--;
-//							System.out.println("push to values: "+ v);
-						}else{
-							char a = values.pop();
-//							System.out.println("pop from values: "+ a);
-							char b = values.pop();
-//							System.out.println("pop from values: "+ b);
-							char v = computeLogic(a,b,stack);
-//							System.out.println("push to values: "+ v);
-							values.push(v);
-							i--;
-						}
-					}else{
-						operator.push(c);
-//						System.out.println("push to operator: "+ c);
-					}
-				}
-			}
+			i = operatorCompute(i, where);
 		}
 //		System.out.println(values.peek());
 		return values.peek() == 'T';
 	}
 	
-	public boolean computeWhereCase(Table.Row row)//计算where语句针对特定的记录的正确性
+	public boolean computeWhereCase(Row row)//计算where语句针对特定的记录的正确性
 	{
 //		System.out.println(whereCase);
 		String wheretmp = new String(whereCase);

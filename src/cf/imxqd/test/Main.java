@@ -2,8 +2,8 @@ package cf.imxqd.test;
 
 import cf.imxqd.sql.Database;
 import cf.imxqd.sql.Parser;
+import cf.imxqd.sql.Row;
 import cf.imxqd.sql.Table;
-import cf.imxqd.sql.Table.Row;
 
 
 public class Main {
